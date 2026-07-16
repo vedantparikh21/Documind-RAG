@@ -3,7 +3,7 @@
 > Upload any PDF. Ask questions in plain English. Get answers with exact page citations.
 
 **Live Demo →** [jgtesjgwlvs62gvmrhap6p.streamlit.app](https://jgtesjgwlvs62gvmrhap6p.streamlit.app)  
-**API Docs →** [documind-rag-production-2662.up.railway.app](https://documind-rag-production-2662.up.railway.app)
+**API Docs →** [documind-rag-production-2662.up.railway.app/docs](https://documind-rag-production-2662.up.railway.app/docs)
 
 ---
 
@@ -146,4 +146,8 @@ documind-rag/
 
 ---
 
-*Built by Vedant Parikh — [LinkedIn](https://www.linkedin.com/in/vedant-parikh/)
+## Author
+
+**Vedant Parikh**
+- [LinkedIn](https://www.linkedin.com/in/vedant-parikh/)
+- [GitHub](https://github.com/Fieldspar04)
