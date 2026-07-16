@@ -77,7 +77,7 @@ Tested with 256, 500, and 1000 character chunks. 500 with 50 overlap balances re
 **Prerequisites:** Python 3.11+, Docker Desktop, Groq API key ([console.groq.com](https://console.groq.com))
 
 ```bash
-git clone https://github.com/your-username/documind-rag.git
+git clone https://github.com/Fieldspar04/Documind-RAG.git
 cd documind-rag
 ```
 
