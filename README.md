@@ -146,4 +146,4 @@ documind-rag/
 
 ---
 
-*Built by Vedant Parikh — [LinkedIn]([https://linkedin.com/in/your-profile](https://www.linkedin.com/in/vedant-parikh/)) 
+*Built by Vedant Parikh — [LinkedIn](https://www.linkedin.com/in/vedant-parikh/)
