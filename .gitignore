@@ -1,0 +1,22 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+.env
+**/__pycache__/
+**/*.pyc
+**/faiss_index/
+**/uploads/
+**/.venv/
+**/test_pipeline.py
+
+# Virtual environments
+.venv
+
+uv.lock
+pyproject.toml
+.python-version

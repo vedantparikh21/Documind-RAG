@@ -1,0 +1,38 @@
+# ── Force CPU-only PyTorch ─────────────────────────────────────────────────────
+# Without this, pip downloads the full CUDA version of torch (~3GB).
+# This line tells pip to also check PyTorch's own index for CPU builds.
+--extra-index-url https://download.pytorch.org/whl/cpu
+
+# Explicitly pin CPU torch BEFORE sentence-transformers is resolved,
+# so pip doesn't accidentally pull the CUDA variant as a dependency.
+torch==2.2.2+cpu
+numpy==1.26.4
+
+# ── Core LangChain packages ────────────────────────────────────────────────────
+langchain==0.3.25
+langchain-community==0.3.23
+langchain-core==0.3.58
+langchain-text-splitters==0.3.8
+langchain-huggingface==0.1.2
+langchain-groq==0.3.2
+
+# ── Vector store ───────────────────────────────────────────────────────────────
+faiss-cpu==1.10.0
+
+# ── PDF loading ────────────────────────────────────────────────────────────────
+pypdf==5.4.0
+
+# ── Embeddings model runner ────────────────────────────────────────────────────
+sentence-transformers==4.1.0
+
+# ── LLM API ────────────────────────────────────────────────────────────────────
+groq==0.25.0
+
+# ── API framework ──────────────────────────────────────────────────────────────
+fastapi==0.115.12
+uvicorn==0.34.2
+python-multipart==0.0.20
+
+# ── Utilities ──────────────────────────────────────────────────────────────────
+python-dotenv==1.1.0
+pydantic==2.11.4

@@ -1,0 +1,83 @@
+# docker-compose.yml
+# ──────────────────
+# Defines two services (backend + frontend) and how they connect.
+# Run everything with: docker-compose up --build
+# Stop everything with: docker-compose down
+
+services:
+
+  # ── Backend service ──────────────────────────────────────────────────────────
+  backend:
+    # "build: ./backend" tells Compose to build an image using
+    # the Dockerfile found in the backend/ folder.
+    build: ./backend
+
+    # Ports: "HOST:CONTAINER" mapping.
+    # "8000:8000" means: your machine's port 8000 → container's port 8000.
+    # After starting, you can still open http://localhost:8000/docs on your PC.
+    ports:
+      - "8000:8000"
+
+    # Environment variables injected into the container at runtime.
+    # ${GROQ_API_KEY} reads from the .env file in this same directory.
+    # This is how secrets reach the container without being hardcoded.
+    environment:
+      - GROQ_API_KEY=${GROQ_API_KEY}
+
+    # Volumes: mount persistent storage into the container.
+    # Without volumes, ALL data (your FAISS index, uploaded PDFs) is lost
+    # every time the container restarts — because containers are stateless.
+    #
+    # "faiss_data:/app/faiss_index" means:
+    #   - Create a named Docker volume called "faiss_data" (Docker manages it)
+    #   - Mount it at /app/faiss_index inside the container
+    #   - The FAISS index written there persists across container restarts
+    volumes:
+      - faiss_data:/app/faiss_index
+      - upload_data:/app/uploads
+
+    # Health check: Docker periodically runs this command inside the container.
+    # If it fails repeatedly, Docker marks the service as unhealthy.
+    # The frontend's "depends_on" uses this to know when backend is truly ready.
+    # healthcheck:
+    #   test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
+    #   interval: 30s   # check every 30 seconds
+    #   timeout: 10s    # fail if no response in 10 seconds
+    #   retries: 3      # mark unhealthy after 3 consecutive failures
+    #   start_period: 20s  # give the app 20s to start before first check
+    healthcheck:
+      test: ["CMD", "python", "-c", 
+             "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+  # ── Frontend service ─────────────────────────────────────────────────────────
+  frontend:
+    build: ./frontend
+
+    ports:
+      - "8501:8501"
+
+    environment:
+      # This is the key line that makes container networking work.
+      # Inside Docker's network, "backend" resolves to the backend container's IP.
+      # The frontend app.py reads this via os.getenv("BACKEND_URL", "http://localhost:8000")
+      - BACKEND_URL=http://backend:8000
+
+    # depends_on ensures backend starts before frontend.
+    # condition: service_healthy means "wait until backend's healthcheck passes"
+    # so Streamlit doesn't start calling an API that isn't ready yet.
+    depends_on:
+      backend:
+        condition: service_healthy
+
+
+# ── Named volumes ────────────────────────────────────────────────────────────
+# Declaring volumes here registers them with Docker.
+# Docker stores them in a managed location on your host machine.
+# They survive "docker-compose down" — only "docker-compose down -v" deletes them.
+volumes:
+  faiss_data:
+  upload_data:

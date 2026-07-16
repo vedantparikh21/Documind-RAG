@@ -1,0 +1,10 @@
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+faiss_index/
+uploads/
+.env
+test_pipeline.py
+*.log
+documents.json
