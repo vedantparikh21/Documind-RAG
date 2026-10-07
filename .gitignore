@@ -20,3 +20,6 @@ wheels/
 uv.lock
 pyproject.toml
 .python-version
+
+documentation/
+desktop.ini
