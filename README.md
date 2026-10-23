@@ -6,6 +6,8 @@ DocuMind is a **Retrieval-Augmented Generation (RAG)** web app. Instead of scrol
 
 **Built with:** FastAPI · Streamlit · LangChain · FAISS · HuggingFace embeddings · Groq LLM · Docker · AWS (EC2 + ECR)
 
+**Live Demo-** [Link](http://34.202.81.127:8501/)
+
 ---
 
 ## Table of contents
