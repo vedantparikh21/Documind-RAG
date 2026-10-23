@@ -14,6 +14,10 @@ wheels/
 **/.venv/
 **/test_pipeline.py
 
+**/sessions/
+test_index/
+**/documents.json
+
 # Virtual environments
 .venv
 

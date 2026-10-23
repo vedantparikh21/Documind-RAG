@@ -19,15 +19,17 @@ Then open http://localhost:8000/docs to see the auto-generated Swagger UI.
 import os
 import json
 import shutil
+import time
+import uuid
 from pathlib import Path
 
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import FastAPI, UploadFile, File, HTTPException, Header, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from dotenv import load_dotenv
 
 from rag_pipeline import ingest_pdf, query_documents
-from config import UPLOADS_DIR, FAISS_INDEX_PATH
+from config import SESSIONS_DIR, MAX_UPLOAD_MB, SESSION_TTL_HOURS
 
 # ══════════════════════════════════════════════════════════════════════════════
 # SECTION A — App setup
@@ -74,17 +76,50 @@ GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 # For now we use a simple JSON file — no database needed.
 # This is fine for a portfolio project. Production would use PostgreSQL.
 
-REGISTRY_PATH = Path(__file__).resolve().parent / "documents.json"
+# ── Per-visitor isolation ─────────────────────────────────────────────────────
+# The frontend creates a random session ID for each visitor and sends it in the
+# X-Session-ID header on every request. All of that visitor's data lives under
+# sessions/<id>/, so one visitor can never see (or delete) another's documents.
 
-def load_registry() -> list[dict]:
-    """Load the list of ingested documents from disk."""
-    if REGISTRY_PATH.exists():
-        return json.loads(REGISTRY_PATH.read_text())
+def get_session(x_session_id: str = Header(...)) -> dict:
+    """FastAPI dependency: validate the session ID and return that visitor's paths."""
+    try:
+        # Only real UUIDs are accepted. This also blocks path tricks like "../".
+        sid = str(uuid.UUID(x_session_id))
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid session ID.")
+
+    root = SESSIONS_DIR / sid
+    uploads = root / "uploads"
+    uploads.mkdir(parents=True, exist_ok=True)
+    return {
+        "id": sid,
+        "root": root,
+        "uploads": uploads,
+        "index": str(root / "faiss_index"),
+        "registry": root / "documents.json",
+    }
+
+def cleanup_old_sessions() -> None:
+    """Delete sessions with no activity for SESSION_TTL_HOURS (keeps the disk small)."""
+    cutoff = time.time() - SESSION_TTL_HOURS * 3600
+    for d in SESSIONS_DIR.iterdir():
+        if not d.is_dir():
+            continue
+        registry = d / "documents.json"
+        last_touched = max(p.stat().st_mtime for p in (d, registry) if p.exists())
+        if last_touched < cutoff:
+            shutil.rmtree(d, ignore_errors=True)
+
+def load_registry(path: Path) -> list[dict]:
+    """Load this visitor's list of ingested documents from disk."""
+    if path.exists():
+        return json.loads(path.read_text())
     return []
 
-def save_registry(docs: list[dict]) -> None:
-    """Persist the document list to disk."""
-    REGISTRY_PATH.write_text(json.dumps(docs, indent=2))
+def save_registry(docs: list[dict], path: Path) -> None:
+    """Persist this visitor's document list to disk."""
+    path.write_text(json.dumps(docs, indent=2))
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -137,9 +172,9 @@ def health_check():
 # already indexed (so they don't have to re-upload on every session).
 
 @app.get("/documents")
-def list_documents():
-    """Return the list of all ingested documents."""
-    return {"documents": load_registry()}
+def list_documents(session: dict = Depends(get_session)):
+    """Return the list of this visitor's ingested documents."""
+    return {"documents": load_registry(session["registry"])}
 
 
 # ── Upload & ingest a PDF ─────────────────────────────────────────────────────
@@ -147,7 +182,7 @@ def list_documents():
 # The client sends the PDF as binary data in the request body.
 
 @app.post("/upload")
-async def upload_pdf(file: UploadFile = File(...)):
+async def upload_pdf(file: UploadFile = File(...), session: dict = Depends(get_session)):
     """
     Accept a PDF upload, save it, ingest into FAISS, update registry.
 
@@ -171,9 +206,17 @@ async def upload_pdf(file: UploadFile = File(...)):
     # Build the save path and write the uploaded bytes to disk.
     # await file.read() reads ALL bytes from the upload.
     # For very large files (100MB+) you'd use streaming chunks — fine to skip for now.
-    save_path = UPLOADS_DIR / file.filename
+    cleanup_old_sessions()
+
+    content = await file.read()
+    if len(content) > MAX_UPLOAD_MB * 1024 * 1024:
+        raise HTTPException(status_code=413, detail=f"File too large (max {MAX_UPLOAD_MB} MB).")
+
+    # Path(...).name strips any folder parts, so a filename like "../../x.pdf"
+    # can't write outside this visitor's uploads folder.
+    safe_name = Path(file.filename).name
+    save_path = session["uploads"] / safe_name
     with open(save_path, "wb") as f:
-        content = await file.read()
         f.write(content)
 
     # Run the ingestion pipeline from rag_pipeline.py.
@@ -189,7 +232,7 @@ async def upload_pdf(file: UploadFile = File(...)):
     import traceback
 
     try:
-        result = ingest_pdf(str(save_path))
+        result = ingest_pdf(str(save_path), session["index"])
     except Exception as e:
         traceback.print_exc()          # <-- add this
         print(f"ERROR: {e}")           # <-- add this
@@ -204,11 +247,11 @@ async def upload_pdf(file: UploadFile = File(...)):
     # Update the document registry.
     # Check for duplicates by filename so re-uploading the same PDF
     # doesn't add it to the list twice.
-    registry = load_registry()
+    registry = load_registry(session["registry"])
     existing_names = [doc["filename"] for doc in registry]
     if result["filename"] not in existing_names:
         registry.append(result)
-        save_registry(registry)
+        save_registry(registry, session["registry"])
 
     # FastAPI automatically converts this dict to a JSON response with status 200.
     return {
@@ -238,39 +281,17 @@ async def upload_pdf(file: UploadFile = File(...)):
 
 #     return {"message": "All documents cleared. You can now upload fresh PDFs."}
 @app.delete("/documents")
-def clear_all_documents():
-    """Delete all indexed documents and uploaded PDFs."""
-
-    import shutil
-
-    # Clear FAISS files
-    faiss_path = Path(FAISS_INDEX_PATH)
-    if faiss_path.exists():
-        for item in faiss_path.iterdir():
-            if item.is_file():
-                item.unlink()
-            elif item.is_dir():
-                shutil.rmtree(item)
-
-    # Clear uploaded PDFs
-    if UPLOADS_DIR.exists():
-        for item in UPLOADS_DIR.iterdir():
-            if item.is_file():
-                item.unlink()
-            elif item.is_dir():
-                shutil.rmtree(item)
-
-    # Reset registry
-    save_registry([])
-
+def clear_all_documents(session: dict = Depends(get_session)):
+    """Delete THIS visitor's documents only (never anyone else's)."""
+    shutil.rmtree(session["root"], ignore_errors=True)
     return {
-        "message": "All documents cleared successfully."
+        "message": "Your documents were cleared successfully."
     }
 
 # ── Query the documents ───────────────────────────────────────────────────────
 
 @app.post("/query", response_model=QueryResponse)
-async def query(req: QueryRequest):
+async def query(req: QueryRequest, session: dict = Depends(get_session)):
     """
     Answer a natural language question using the ingested documents.
 
@@ -291,7 +312,7 @@ async def query(req: QueryRequest):
         )
 
     try:
-        result = query_documents(req.question, GROQ_API_KEY)
+        result = query_documents(req.question, GROQ_API_KEY, session["index"])
     except ValueError as e:
         # ValueError from rag_pipeline means no documents ingested yet.
         # This is a client error (they should upload first), so 400 not 500.

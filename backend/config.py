@@ -3,9 +3,13 @@ from pathlib import Path
 
 # ── Paths ──────────────────────────────────────────────────────────────────────
 BASE_DIR = Path(__file__).resolve().parent # path of curr file itself (base = backend folder)
-FAISS_INDEX_PATH = str(BASE_DIR / "faiss_index") # directory made inside the backend folder
-UPLOADS_DIR = BASE_DIR / "uploads"
-UPLOADS_DIR.mkdir(exist_ok=True)
+# Every visitor gets their own folder: sessions/<session-id>/{uploads, faiss_index, documents.json}
+SESSIONS_DIR = BASE_DIR / "sessions"
+SESSIONS_DIR.mkdir(exist_ok=True)
+
+# ── Abuse limits (the app is public, so keep it cheap to run) ──────────────────
+MAX_UPLOAD_MB = 25          # reject PDFs bigger than this
+SESSION_TTL_HOURS = 24      # a visitor's data is deleted this long after their last upload
 
 # ── Chunking ───────────────────────────────────────────────────────────────────
 CHUNK_SIZE = 500        # max characters per chunk

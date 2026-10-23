@@ -33,8 +33,7 @@ services:
     #   - Mount it at /app/faiss_index inside the container
     #   - The FAISS index written there persists across container restarts
     volumes:
-      - faiss_data:/app/faiss_index
-      - upload_data:/app/uploads
+      - sessions_data:/app/sessions
 
     # Health check: Docker periodically runs this command inside the container.
     # If it fails repeatedly, Docker marks the service as unhealthy.
@@ -79,5 +78,4 @@ services:
 # Docker stores them in a managed location on your host machine.
 # They survive "docker-compose down" — only "docker-compose down -v" deletes them.
 volumes:
-  faiss_data:
-  upload_data:
+  sessions_data:

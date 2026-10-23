@@ -1,0 +1,7 @@
+# Local development (no Docker): installs backend + frontend together.
+#   pip install -r requirements.txt
+#
+# NOTE: backend/requirements.txt and frontend/requirements.txt must stay.
+# Docker builds each service from its own folder, so each image needs its own file.
+-r backend/requirements.txt
+-r frontend/requirements.txt

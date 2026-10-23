@@ -36,7 +36,7 @@ COPY . .
 # ── Create runtime directories ─────────────────────────────────────────────────
 # faiss_index/ and uploads/ are written to at runtime by the app.
 # We create them here so they exist even before any volumes are mounted.
-RUN mkdir -p faiss_index uploads
+RUN mkdir -p sessions
 
 # ── Expose port ────────────────────────────────────────────────────────────────
 # EXPOSE is documentation — it tells Docker (and humans) which port this

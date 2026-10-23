@@ -7,6 +7,7 @@ Core RAG logic. This file does three things:
   3. Answer a question  →  retrieve chunks → pass to LLM → return answer + sources
 """
 
+import re
 from pathlib import Path
 
 from langchain_community.document_loaders import PyPDFLoader
@@ -19,7 +20,6 @@ from langchain.chains import create_retrieval_chain
 from langchain.chains.combine_documents import create_stuff_documents_chain
 
 from config import (
-    FAISS_INDEX_PATH,
     CHUNK_SIZE,
     CHUNK_OVERLAP,
     TOP_K_CHUNKS,
@@ -98,13 +98,13 @@ prompt = ChatPromptTemplate.from_messages([
 #             # We saved it ourselves, so we know it's safe.
 #         )
 #     return None
-def load_vector_store() -> FAISS | None:
+def load_vector_store(index_path: str) -> FAISS | None:
     """
     Load the FAISS index from disk.
     Returns None if no index has been created yet.
     """
 
-    index_file = Path(FAISS_INDEX_PATH) / "index.faiss"
+    index_file = Path(index_path) / "index.faiss"
 
     if not index_file.exists():
         print("No FAISS index found. Creating a new one.")
@@ -113,22 +113,22 @@ def load_vector_store() -> FAISS | None:
     print("Loading existing FAISS index...")
 
     return FAISS.load_local(
-        FAISS_INDEX_PATH,
+        index_path,
         embeddings,
         allow_dangerous_deserialization=True,
     )
 
 
-def save_vector_store(store: FAISS) -> None:
+def save_vector_store(store: FAISS, index_path: str) -> None:
     """Persist the FAISS index to disk so it survives app restarts."""
-    store.save_local(FAISS_INDEX_PATH)
+    store.save_local(index_path)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
 # SECTION D — PDF ingestion
 # ══════════════════════════════════════════════════════════════════════════════
 
-def ingest_pdf(pdf_path: str) -> dict:
+def ingest_pdf(pdf_path: str, index_path: str) -> dict:
     """
     Full ingestion pipeline for one PDF file.
 
@@ -182,16 +182,16 @@ def ingest_pdf(pdf_path: str) -> dict:
     #   b) Builds a FAISS index from those vectors
     # If a FAISS index already exists on disk (from a previous PDF), we load it
     # and ADD to it rather than overwriting it. This is how multi-PDF works.
-    existing_store = load_vector_store()
+    existing_store = load_vector_store(index_path)
 
     if existing_store is not None:
         # Add new chunks to the existing index
         existing_store.add_documents(chunks)
-        save_vector_store(existing_store)
+        save_vector_store(existing_store, index_path)
     else:
         # First PDF ever — create a brand new index
         new_store = FAISS.from_documents(chunks, embeddings)
-        save_vector_store(new_store)
+        save_vector_store(new_store, index_path)
 
     return {
         "filename": filename,
@@ -204,7 +204,7 @@ def ingest_pdf(pdf_path: str) -> dict:
 # SECTION E — RAG chain builder
 # ══════════════════════════════════════════════════════════════════════════════
 
-def build_rag_chain(groq_api_key: str):
+def build_rag_chain(groq_api_key: str, index_path: str):
     """
     Assemble and return the RAG chain.
     This must be called after at least one PDF has been ingested.
@@ -222,7 +222,7 @@ def build_rag_chain(groq_api_key: str):
     """
 
     # Load the vector store from disk
-    store = load_vector_store()
+    store = load_vector_store(index_path)
     if store is None:
         raise ValueError(
             "No documents ingested yet. "
@@ -272,7 +272,20 @@ def build_rag_chain(groq_api_key: str):
 # SECTION F — Public query function
 # ══════════════════════════════════════════════════════════════════════════════
 
-def query_documents(question: str, groq_api_key: str) -> dict:
+# Greetings / thanks that should get a friendly canned reply, not a document search.
+SMALL_TALK = re.compile(
+    r"^\s*(hi+|hello+|hey+|heya|yo|hola|namaste|sup|"
+    r"good\s+(morning|afternoon|evening)|how are you|"
+    r"thanks?( you)?|thank you|ok(ay)?|cool|bye|goodbye)\W*$",
+    re.IGNORECASE,
+)
+SMALL_TALK_REPLY = (
+    "Hi! I answer questions about the PDFs you upload. "
+    "Add a document in the sidebar, then ask me something about it."
+)
+
+
+def query_documents(question: str, groq_api_key: str, index_path: str) -> dict:
     """
     Answer a question using the ingested documents.
 
@@ -293,7 +306,13 @@ def query_documents(question: str, groq_api_key: str) -> dict:
           ]
         }
     """
-    chain = build_rag_chain(groq_api_key)
+    # Small talk ("hi", "thanks") has nothing to retrieve. Without this check the
+    # app still fetches 5 random chunks and lets the LLM improvise, so "hi" and
+    # "hey" can get different answers plus a misleading "Sources" box.
+    if SMALL_TALK.match(question):
+        return {"answer": SMALL_TALK_REPLY, "sources": []}
+
+    chain = build_rag_chain(groq_api_key, index_path)
 
     # .invoke() runs the full chain synchronously (blocking)
     # result has two keys:

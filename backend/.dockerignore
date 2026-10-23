@@ -3,6 +3,8 @@ __pycache__/
 *.pyc
 *.pyo
 faiss_index/
+sessions/
+test_index/
 uploads/
 .env
 test_pipeline.py

@@ -18,6 +18,7 @@ import requests
 import streamlit as st
 
 import os
+import uuid
 
 # ══════════════════════════════════════════════════════════════════════════════
 # SECTION A — Page config (must be the FIRST Streamlit call in the script)
@@ -40,6 +41,25 @@ st.set_page_config(
 # When you deploy, you'd change this to your Railway/Render backend URL.
 # API_BASE = "http://localhost:8000"
 API_BASE = os.getenv("BACKEND_URL", "http://localhost:8000")
+
+# ── Per-visitor session ID ─────────────────────────────────────────────────────
+# Each visitor gets a random ID that the backend uses to keep their documents
+# private. It is stored in the page URL (?sid=...) so a browser refresh keeps
+# the same documents instead of starting over.
+def _new_or_valid_sid() -> str:
+    sid = st.query_params.get("sid")
+    try:
+        return str(uuid.UUID(sid))
+    except (ValueError, TypeError, AttributeError):
+        return str(uuid.uuid4())
+
+if "session_id" not in st.session_state:
+    st.session_state.session_id = _new_or_valid_sid()
+    st.query_params["sid"] = st.session_state.session_id
+
+def api_headers() -> dict:
+    """Headers sent with every backend request so it knows whose data this is."""
+    return {"X-Session-ID": st.session_state.session_id}
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -75,7 +95,7 @@ if "sources_history" not in st.session_state:
 def fetch_documents() -> list[dict]:
     """Call GET /documents and return the list of ingested docs."""
     try:
-        response = requests.get(f"{API_BASE}/documents", timeout=5)
+        response = requests.get(f"{API_BASE}/documents", headers=api_headers(), timeout=5)
         response.raise_for_status()
         return response.json().get("documents", [])
     except requests.exceptions.ConnectionError:
@@ -96,7 +116,7 @@ def upload_pdf(file) -> dict | None:
     """
     try:
         files = {"file": (file.name, file.getvalue(), "application/pdf")}
-        response = requests.post(f"{API_BASE}/upload", files=files, timeout=300)
+        response = requests.post(f"{API_BASE}/upload", files=files, headers=api_headers(), timeout=300)
         response.raise_for_status()
         return response.json()
     except requests.exceptions.ConnectionError:
@@ -120,6 +140,7 @@ def ask_question(question: str) -> dict | None:
         response = requests.post(
             f"{API_BASE}/query",
             json=payload,   # sends as application/json (not form data)
+            headers=api_headers(),
             timeout=30,     # LLM calls can take a few seconds
         )
         response.raise_for_status()
@@ -220,14 +241,14 @@ with st.sidebar:
 
     st.divider()
     st.subheader("⚠️ Danger Zone")
-    if st.button("🗑️ Flush All Documents", use_container_width=True, type="primary"):
+    if st.button("🗑️ Delete My Documents", use_container_width=True, type="primary"):
         try:
-            response = requests.delete(f"{API_BASE}/documents", timeout=10)
+            response = requests.delete(f"{API_BASE}/documents", headers=api_headers(), timeout=10)
             response.raise_for_status()
             st.session_state.indexed_docs = []
             st.session_state.messages = []
             st.session_state.sources_history = []
-            st.success("All documents cleared!")
+            st.success("Your documents were cleared!")
             st.rerun()
         except Exception as e:
             st.error(f"Failed to clear: {e}")
